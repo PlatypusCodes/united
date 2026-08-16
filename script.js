@@ -1,41 +1,7 @@
 /* =========================================================================
    UNITED — free advertising board
-   Firebase Auth + Firestore. Vanilla JS, no build step.
-
-   SETUP (do this before deploying):
-   1. Firebase project "united-6962b" — config is already wired up below.
-      Just make sure Authentication (Email/Password + Google) and
-      Firestore are enabled for that project in the Firebase console.
-   2. Firestore security rules (paste into Firebase console > Firestore > Rules):
-
-      rules_version = '2';
-      service cloud.firestore {
-        match /databases/{database}/documents {
-          match /sites/{siteId} {
-            allow read: if true;
-            allow create: if request.auth != null
-              && request.resource.data.ownerId == request.auth.uid
-              && request.resource.data.likeCount == 0
-              && request.resource.data.viewCount == 0;
-            allow update: if request.auth != null && (
-              // owner editing their own listing
-              (resource.data.ownerId == request.auth.uid) ||
-              // anyone incrementing view/like counters only
-              request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['viewCount', 'likeCount'])
-            );
-            allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-          }
-          match /users/{userId}/likes/{siteId} {
-            allow read: if request.auth != null && request.auth.uid == userId;
-            allow write: if request.auth != null && request.auth.uid == userId;
-          }
-        }
-      }
-
-   3. Firestore will prompt you to create a composite index the first time
-      a filtered+sorted query runs — just click the link it gives you in
-      the console/network error.
+   Firebase Auth + Firestore + Storage. Vanilla JS, no build step.
+   See README.md for full setup, security rules, and data model.
    ========================================================================= */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
@@ -46,9 +12,12 @@ import {
   GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 import {
-  getFirestore, collection, addDoc, doc, setDoc, deleteDoc, getDocs,
+  getFirestore, collection, addDoc, doc, setDoc, deleteDoc, getDoc,
   onSnapshot, query, orderBy, serverTimestamp, increment, updateDoc
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import {
+  getStorage, ref, uploadBytes, getDownloadURL
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAJRVG5eBdXpGVs-BYf4QJ7kF7kd5bGR64",
@@ -61,9 +30,14 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_DESCRIPTION_LEN = 140;
+const MAX_BIO_LEN = 80;
 
 /* ---------- state ---------- */
 let currentUser = null;
@@ -72,19 +46,29 @@ let likedSiteIds = new Set();
 let currentCategory = "all";
 let currentSort = "trending";
 let searchTerm = "";
+let pendingAvatarFile = null;
+let currentUserProfile = { bio: "" };
 
-/* ---------- helpers ---------- */
+/* ---------- small utilities ---------- */
 const $ = (id) => document.getElementById(id);
+
 const CATEGORY_LABELS = {
   tools: "Tools & apps", games: "Games", shops: "Shops & products",
   blogs: "Blogs & writing", art: "Art & portfolios",
   community: "Communities", other: "Other"
 };
 
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
 function normalizeUrl(raw) {
-  let url = raw.trim();
-  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-  return url;
+  const url = raw.trim();
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
 function domainOf(url) {
@@ -93,27 +77,40 @@ function domainOf(url) {
 }
 
 function faviconFor(url) {
-  const domain = domainOf(url);
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
-}
-
-function timeAgo(date) {
-  if (!date) return "just now";
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domainOf(url))}&sz=64`;
 }
 
 function initials(nameOrEmail) {
-  const s = (nameOrEmail || "?").trim();
-  return s.charAt(0).toUpperCase();
+  return (nameOrEmail || "?").trim().charAt(0).toUpperCase();
+}
+
+function escapeHTML(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+function avatarMarkup(user, size = 26) {
+  const label = user?.displayName || user?.email || "?";
+  if (user?.photoURL) {
+    return `<img class="user-avatar user-avatar-img" src="${escapeHTML(user.photoURL)}" alt="" width="${size}" height="${size}">`;
+  }
+  return `<span class="user-avatar">${initials(label)}</span>`;
+}
+
+/* ---------- toast notifications ---------- */
+function showToast(message, type = "info") {
+  const container = $("toastContainer");
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  toast.setAttribute("role", "status");
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("visible"));
+  setTimeout(() => {
+    toast.classList.remove("visible");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+  }, 3200);
 }
 
 /* ---------- modals ---------- */
@@ -145,7 +142,7 @@ $("emptySubmitBtn")?.addEventListener("click", () => {
   if (requireAuthOrOpen()) openModal("submitOverlay");
 });
 
-/* ---------- auth UI ---------- */
+/* ---------- auth: sign in / sign up ---------- */
 let authMode = "signin";
 
 document.querySelectorAll("[data-auth-tab]").forEach((tab) => {
@@ -192,11 +189,11 @@ $("authForm").addEventListener("submit", async (e) => {
 });
 
 $("googleAuthBtn").addEventListener("click", async () => {
+  const errorEl = $("authError");
   try {
     await signInWithPopup(auth, new GoogleAuthProvider());
     closeModal("authOverlay");
   } catch (err) {
-    const errorEl = $("authError");
     errorEl.textContent = friendlyAuthError(err.code);
     errorEl.hidden = false;
   }
@@ -210,11 +207,13 @@ function friendlyAuthError(code) {
     "auth/wrong-password": "Wrong password.",
     "auth/user-not-found": "No account with that email.",
     "auth/invalid-credential": "Email or password is wrong.",
-    "auth/popup-closed-by-user": "Sign-in was closed before it finished."
+    "auth/popup-closed-by-user": "Sign-in was closed before it finished.",
+    "auth/network-request-failed": "Network error — check your connection and try again."
   };
   return map[code] || "Something went wrong. Try again.";
 }
 
+/* ---------- header auth area ---------- */
 function renderAuthArea() {
   const area = $("authArea");
   if (!currentUser) {
@@ -228,32 +227,148 @@ function renderAuthArea() {
       openModal("authOverlay");
     });
     $("mineChip").hidden = true;
-  } else {
-    const label = currentUser.displayName || currentUser.email;
-    area.innerHTML = `
-      <div class="user-chip" id="userChip">
-        <span class="user-avatar">${initials(label)}</span>
-        <span>${label.split("@")[0]}</span>
-        <div class="user-dropdown" id="userDropdown">
-          <button type="button" id="signOutBtn">Sign out</button>
-        </div>
-      </div>
-    `;
-    $("userChip").addEventListener("click", (e) => {
-      e.stopPropagation();
-      $("userDropdown").classList.toggle("open");
-    });
-    document.addEventListener("click", () => $("userDropdown")?.classList.remove("open"), { once: true });
-    $("signOutBtn").addEventListener("click", () => signOut(auth));
-    $("mineChip").hidden = false;
+    return;
   }
+
+  const label = currentUser.displayName || currentUser.email;
+  area.innerHTML = `
+    <div class="user-chip" id="userChip">
+      ${avatarMarkup(currentUser)}
+      <span>${escapeHTML(label.split("@")[0])}</span>
+      <div class="user-dropdown" id="userDropdown">
+        <button type="button" id="editProfileBtn">Edit profile</button>
+        <button type="button" id="signOutBtn">Sign out</button>
+      </div>
+    </div>
+  `;
+  $("userChip").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("userDropdown").classList.toggle("open");
+  });
+  document.addEventListener("click", () => $("userDropdown")?.classList.remove("open"), { once: true });
+  $("editProfileBtn").addEventListener("click", openProfileModal);
+  $("signOutBtn").addEventListener("click", () => signOut(auth));
+  $("mineChip").hidden = false;
 }
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   currentUser = user;
+  currentUserProfile = { bio: "" };
+  if (user) {
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid));
+      if (snap.exists()) currentUserProfile.bio = snap.data().bio || "";
+    } catch {
+      // non-critical — profile bio just won't prefill this session
+    }
+  }
   renderAuthArea();
   listenToLikes();
   renderGrid();
+});
+
+/* ---------- profile editing ---------- */
+function openProfileModal() {
+  if (!currentUser) return;
+  pendingAvatarFile = null;
+  $("profileError").hidden = true;
+  $("profileDisplayName").value = currentUser.displayName || "";
+  $("profileBio").value = currentUserProfile.bio || "";
+  $("profileBioCount").textContent = `${MAX_BIO_LEN - (currentUserProfile.bio || "").length} left`;
+  setAvatarPreview(currentUser.photoURL);
+  openModal("profileOverlay");
+}
+
+function setAvatarPreview(src) {
+  const preview = $("avatarPreview");
+  if (src) {
+    preview.innerHTML = `<img src="${escapeHTML(src)}" alt="" width="88" height="88">`;
+  } else {
+    preview.innerHTML = `<span>${initials(currentUser?.displayName || currentUser?.email)}</span>`;
+  }
+}
+
+$("avatarPickBtn").addEventListener("click", () => $("avatarFileInput").click());
+$("avatarFileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  const errorEl = $("profileError");
+  errorEl.hidden = true;
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    errorEl.textContent = "Please choose an image file.";
+    errorEl.hidden = false;
+    e.target.value = "";
+    return;
+  }
+  if (file.size > MAX_AVATAR_BYTES) {
+    errorEl.textContent = "Image is too large — please pick one under 5MB.";
+    errorEl.hidden = false;
+    e.target.value = "";
+    return;
+  }
+
+  pendingAvatarFile = file;
+  const reader = new FileReader();
+  reader.onload = () => setAvatarPreview(reader.result);
+  reader.readAsDataURL(file);
+});
+
+$("profileBio").addEventListener("input", (e) => {
+  $("profileBioCount").textContent = `${MAX_BIO_LEN - e.target.value.length} left`;
+});
+
+$("profileForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentUser) return;
+
+  const displayName = $("profileDisplayName").value.trim();
+  const bio = $("profileBio").value.trim();
+  const errorEl = $("profileError");
+  errorEl.hidden = true;
+
+  if (!displayName) {
+    errorEl.textContent = "Display name can't be empty.";
+    errorEl.hidden = false;
+    return;
+  }
+
+  const saveBtn = $("profileSaveBtn");
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving...";
+
+  try {
+    let photoURL = currentUser.photoURL || null;
+
+    if (pendingAvatarFile) {
+      const avatarRef = ref(storage, `avatars/${currentUser.uid}/avatar`);
+      await uploadBytes(avatarRef, pendingAvatarFile, { contentType: pendingAvatarFile.type });
+      const rawUrl = await getDownloadURL(avatarRef);
+      // cache-bust so the browser fetches the new image immediately
+      photoURL = `${rawUrl}&cb=${Date.now()}`;
+    }
+
+    await updateProfile(currentUser, { displayName, photoURL });
+    await setDoc(doc(db, "users", currentUser.uid), {
+      displayName, photoURL: photoURL || null, bio,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    // updateProfile mutates auth.currentUser in place; keep local references in sync
+    currentUser = auth.currentUser;
+    currentUserProfile.bio = bio;
+    pendingAvatarFile = null;
+
+    renderAuthArea();
+    closeModal("profileOverlay");
+    showToast("Profile updated.", "success");
+  } catch (err) {
+    errorEl.textContent = "Couldn't save your profile — try again in a moment.";
+    errorEl.hidden = false;
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save profile";
+  }
 });
 
 /* ---------- likes (per-user subcollection) ---------- */
@@ -268,7 +383,7 @@ function listenToLikes() {
   });
 }
 
-async function toggleLike(siteId, currentLikeCount) {
+async function toggleLike(siteId) {
   if (!requireAuthOrOpen()) return;
   const likeRef = doc(db, "users", currentUser.uid, "likes", siteId);
   const siteRef = doc(db, "sites", siteId);
@@ -281,27 +396,30 @@ async function toggleLike(siteId, currentLikeCount) {
       await setDoc(likeRef, { likedAt: serverTimestamp() });
       await updateDoc(siteRef, { likeCount: increment(1) });
     }
-  } catch (err) {
-    console.error("Like toggle failed:", err);
+  } catch {
+    showToast("Couldn't update your like — try again.", "error");
   }
 }
 
 async function visitSite(siteId, url) {
-  try { await updateDoc(doc(db, "sites", siteId), { viewCount: increment(1) }); }
-  catch (err) { console.error("View increment failed:", err); }
+  updateDoc(doc(db, "sites", siteId), { viewCount: increment(1) }).catch(() => {});
   window.open(normalizeUrl(url), "_blank", "noopener");
 }
 
 async function deleteSite(siteId) {
   if (!confirm("Remove this listing from the board?")) return;
-  try { await deleteDoc(doc(db, "sites", siteId)); }
-  catch (err) { console.error("Delete failed:", err); }
+  try {
+    await deleteDoc(doc(db, "sites", siteId));
+    showToast("Listing removed.", "success");
+  } catch {
+    showToast("Couldn't remove that listing — try again.", "error");
+  }
 }
 
 /* ---------- submit form ---------- */
 const descInput = $("siteDescription");
 descInput.addEventListener("input", () => {
-  $("descCharCount").textContent = `${140 - descInput.value.length} left`;
+  $("descCharCount").textContent = `${MAX_DESCRIPTION_LEN - descInput.value.length} left`;
 });
 
 $("submitForm").addEventListener("submit", async (e) => {
@@ -316,10 +434,17 @@ $("submitForm").addEventListener("submit", async (e) => {
   errorEl.hidden = true;
 
   let url;
-  try { url = normalizeUrl(rawUrl); new URL(url); }
-  catch { errorEl.textContent = "That URL doesn't look valid."; errorEl.hidden = false; return; }
+  try {
+    url = normalizeUrl(rawUrl);
+    new URL(url);
+  } catch {
+    errorEl.textContent = "That URL doesn't look valid.";
+    errorEl.hidden = false;
+    return;
+  }
 
-  $("submitSiteBtn").disabled = true;
+  const submitBtn = $("submitSiteBtn");
+  submitBtn.disabled = true;
   try {
     await addDoc(collection(db, "sites"), {
       title, url, category, description,
@@ -330,14 +455,14 @@ $("submitForm").addEventListener("submit", async (e) => {
       viewCount: 0
     });
     e.target.reset();
-    $("descCharCount").textContent = "140 left";
+    $("descCharCount").textContent = `${MAX_DESCRIPTION_LEN} left`;
     closeModal("submitOverlay");
-  } catch (err) {
+    showToast("Listed on the board.", "success");
+  } catch {
     errorEl.textContent = "Couldn't submit that — try again in a moment.";
     errorEl.hidden = false;
-    console.error(err);
   } finally {
-    $("submitSiteBtn").disabled = false;
+    submitBtn.disabled = false;
   }
 });
 
@@ -353,9 +478,8 @@ onSnapshot(query(collection(db, "sites"), orderBy("createdAt", "desc")), (snap) 
   });
   $("boardLoading").hidden = true;
   renderGrid();
-}, (err) => {
-  console.error(err);
-  $("boardLoading").textContent = "Couldn't load the board. Check your Firebase config in script.js.";
+}, () => {
+  $("boardLoading").textContent = "Couldn't load the board — check your connection and refresh.";
 });
 
 function renderGrid() {
@@ -385,14 +509,15 @@ function renderGrid() {
     list.sort((a, b) => (b.createdAtDate?.getTime() || 0) - (a.createdAtDate?.getTime() || 0));
   }
 
-  $("boardEmpty").hidden = list.length !== 0 || !$("boardLoading").hidden;
+  const stillLoading = !$("boardLoading").hidden;
+  $("boardEmpty").hidden = list.length !== 0 || stillLoading;
   grid.innerHTML = list.map(cardHTML).join("");
 
   grid.querySelectorAll("[data-visit]").forEach((el) => {
-    el.addEventListener("click", () => visitSite(el.dataset.visit, el.dataset.url));
+    el.addEventListener("click", (e) => { e.preventDefault(); visitSite(el.dataset.visit, el.dataset.url); });
   });
   grid.querySelectorAll("[data-like]").forEach((el) => {
-    el.addEventListener("click", () => toggleLike(el.dataset.like, Number(el.dataset.count)));
+    el.addEventListener("click", () => toggleLike(el.dataset.like));
   });
   grid.querySelectorAll("[data-delete]").forEach((el) => {
     el.addEventListener("click", (e) => { e.stopPropagation(); deleteSite(el.dataset.delete); });
@@ -418,7 +543,7 @@ function cardHTML(site) {
       </div>
       <p class="card-desc">${safeDesc}</p>
       <div class="card-footer">
-        <button class="like-btn${liked ? " liked" : ""}" type="button" data-like="${site.id}" data-count="${site.likeCount || 0}">
+        <button class="like-btn${liked ? " liked" : ""}" type="button" data-like="${site.id}">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="${liked ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 14s-6-3.6-6-8.1C2 3.5 3.7 2 5.7 2 6.8 2 7.6 2.6 8 3.4 8.4 2.6 9.2 2 10.3 2c2 0 3.7 1.5 3.7 3.9C14 10.4 8 14 8 14z"/></svg>
           <span>${site.likeCount || 0}</span>
         </button>
@@ -426,21 +551,23 @@ function cardHTML(site) {
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>
           ${site.viewCount || 0}
         </span>
-        <a class="visit-btn" href="#" data-visit="${site.id}" data-url="${escapeHTML(site.url)}">Visit →</a>
+        <a class="visit-btn" href="${escapeHTML(normalizeUrl(site.url))}" data-visit="${site.id}" data-url="${escapeHTML(site.url)}" target="_blank" rel="noopener">Visit →</a>
       </div>
     </article>
   `;
 }
 
-function escapeHTML(str) {
-  const div = document.createElement("div");
-  div.textContent = str ?? "";
-  return div.innerHTML;
-}
+/* ---------- browse controls ---------- */
+$("searchInput").addEventListener("input", debounce((e) => {
+  searchTerm = e.target.value;
+  renderGrid();
+}, 150));
 
-/* ---------- controls ---------- */
-$("searchInput").addEventListener("input", (e) => { searchTerm = e.target.value; renderGrid(); });
-$("sortSelect").addEventListener("change", (e) => { currentSort = e.target.value; renderGrid(); });
+$("sortSelect").addEventListener("change", (e) => {
+  currentSort = e.target.value;
+  renderGrid();
+});
+
 document.querySelectorAll(".chip").forEach((chip) => {
   chip.addEventListener("click", () => {
     currentCategory = chip.dataset.category;

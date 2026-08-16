@@ -191,6 +191,12 @@ button, input, select, textarea { font-family: inherit; }
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.user-avatar-img {
+  object-fit: cover;
+  background: var(--coffee-dim);
 }
 
 .user-dropdown {
@@ -218,6 +224,7 @@ button, input, select, textarea { font-family: inherit; }
   font-size: 13.5px;
 }
 .user-dropdown button:hover { background: rgba(245,233,206,0.06); color: var(--cream); }
+.user-dropdown button + button { margin-top: 2px; border-top: 1px solid rgba(245,233,206,0.08); padding-top: 11px; }
 
 /* Hero */
 .hero {
@@ -614,4 +621,56 @@ button, input, select, textarea { font-family: inherit; }
   .browse-controls { flex-direction: column; }
   .visit-btn { margin-left: 0; }
   .card-footer { flex-wrap: wrap; }
+}
+
+/* Avatar picker (edit profile modal) */
+.avatar-picker { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+
+.avatar-preview {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--amber);
+  color: var(--ink);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  border: 1px solid rgba(245, 233, 206, 0.16);
+}
+.avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+.avatar-hint { margin: 8px 0 0; font-size: 12px; color: var(--coffee-dim); }
+
+/* Toasts */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(340px, calc(100vw - 40px));
+}
+
+.toast {
+  background: var(--coffee);
+  border: 1px solid rgba(245, 233, 206, 0.16);
+  color: var(--cream);
+  padding: 13px 18px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  box-shadow: 0 16px 32px -14px rgba(0,0,0,0.55);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.visible { opacity: 1; transform: translateY(0); }
+.toast-success { border-color: rgba(226, 150, 60, 0.5); }
+.toast-error { border-color: rgba(226, 112, 60, 0.5); }
+
+@media (max-width: 480px) {
+  .toast-container { right: 16px; left: 16px; bottom: 16px; max-width: none; }
 }
