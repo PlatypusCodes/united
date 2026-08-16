@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>United — advertising, united. Free, for everyone.</title>
+<meta name="description" content="United is a free advertising board. Create an account, list your site, and let other people find it, like it, and watch the view count climb.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='16' cy='20' r='11' fill='%23e2963c'/%3E%3Ccircle cx='26' cy='20' r='11' fill='%23a9714c' fill-opacity='0.85'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="grain"></div>
+
+<!-- Auth Modal -->
+<div class="modal-overlay" id="authOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+    <button class="modal-close" type="button" data-close="authOverlay" aria-label="Close">&times;</button>
+    <div class="modal-tabs" role="tablist">
+      <button class="modal-tab active" type="button" data-auth-tab="signin" role="tab" aria-selected="true">Sign in</button>
+      <button class="modal-tab" type="button" data-auth-tab="signup" role="tab" aria-selected="false">Create account</button>
+    </div>
+    <h2 class="modal-title" id="authModalTitle">Welcome back</h2>
+    <p class="modal-sub" id="authModalSub">Sign in to list a site, like listings, and track your board.</p>
+
+    <form id="authForm" novalidate>
+      <div class="form-group" id="displayNameGroup" hidden>
+        <label for="authDisplayName">Display name</label>
+        <input type="text" id="authDisplayName" name="displayName" maxlength="40" placeholder="How you'll show up on the board">
+      </div>
+      <div class="form-group">
+        <label for="authEmail">Email</label>
+        <input type="email" id="authEmail" name="email" required autocomplete="email" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label for="authPassword">Password</label>
+        <input type="password" id="authPassword" name="password" required autocomplete="current-password" minlength="6" placeholder="At least 6 characters">
+      </div>
+      <p class="form-error" id="authError" hidden></p>
+      <button class="btn btn-primary btn-block" type="submit" id="authSubmitBtn">Sign in</button>
+    </form>
+
+    <div class="modal-divider"><span>or</span></div>
+
+    <button class="btn btn-ghost btn-block" type="button" id="googleAuthBtn">
+      <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><path fill="#EA4335" d="M9 3.6c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.4 0 9 0 5.48 0 2.44 2.02.96 4.96l3 2.33C4.68 5.1 6.66 3.6 9 3.6z"/><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#FBBC05" d="M3.96 10.71a5.4 5.4 0 0 1 0-3.42v-2.3H.96a9 9 0 0 0 0 8.02l3-2.3z"/><path fill="#34A853" d="M9 18c2.4 0 4.42-.79 5.9-2.15l-2.9-2.26c-.8.55-1.84.87-3 .87-2.34 0-4.32-1.5-5.04-3.6l-3 2.3A9 9 0 0 0 9 18z"/></svg>
+      <span>Continue with Google</span>
+    </button>
+  </div>
+</div>
+
+<!-- Submit Modal -->
+<div class="modal-overlay" id="submitOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submitModalTitle">
+    <button class="modal-close" type="button" data-close="submitOverlay" aria-label="Close">&times;</button>
+    <h2 class="modal-title" id="submitModalTitle">List your site</h2>
+    <p class="modal-sub">Free, forever. It goes live on the board the moment you submit.</p>
+
+    <form id="submitForm" novalidate>
+      <div class="form-group">
+        <label for="siteTitle">Site name</label>
+        <input type="text" id="siteTitle" name="title" required maxlength="60" placeholder="What people should call it">
+      </div>
+      <div class="form-group">
+        <label for="siteUrl">URL</label>
+        <input type="text" id="siteUrl" name="url" required placeholder="yoursite.com">
+      </div>
+      <div class="form-group">
+        <label for="siteCategory">Category</label>
+        <select id="siteCategory" name="category" required>
+          <option value="tools">Tools &amp; apps</option>
+          <option value="games">Games</option>
+          <option value="shops">Shops &amp; products</option>
+          <option value="blogs">Blogs &amp; writing</option>
+          <option value="art">Art &amp; portfolios</option>
+          <option value="community">Communities</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="siteDescription">One-line pitch</label>
+        <textarea id="siteDescription" name="description" required maxlength="140" rows="3" placeholder="What is it, in one sentence?"></textarea>
+        <span class="char-count" id="descCharCount">140 left</span>
+      </div>
+      <p class="form-error" id="submitError" hidden></p>
+      <button class="btn btn-primary btn-block" type="submit" id="submitSiteBtn">Submit for free</button>
+    </form>
+  </div>
+</div>
+
+<header class="site-header" id="siteHeader">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top">
+      <svg class="brand-mark" width="34" height="34" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="16" cy="20" r="11" fill="var(--amber)"/>
+        <circle cx="26" cy="20" r="11" fill="var(--clay)" fill-opacity="0.85"/>
+      </svg>
+      <span class="brand-word">united</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="#how">How it works</a>
+      <a href="#browse">Browse</a>
+      <a href="#submit">Submit</a>
+    </nav>
+    <div class="auth-area" id="authArea">
+      <!-- populated by script.js -->
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero" id="hero">
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <p class="eyebrow">Ad budget: <em>$0</em> · Reach: <em>everyone else on the board</em></p>
+        <h1 class="hero-title">Advertising,<br>united.</h1>
+        <p class="hero-sub">United is a free board where anyone can list their site, app, shop, or project. No campaigns, no spend, no algorithm to bribe — just an account, a listing, and whoever likes it enough to click.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#browse">Browse the board</a>
+          <button class="btn btn-text" type="button" id="heroSubmitLink"><span>List your site free →</span></button>
+        </div>
+      </div>
+      <div class="hero-art">
+        <div class="hero-blob" aria-hidden="true"></div>
+        <div class="demo-card" id="demoCard" aria-hidden="true">
+          <div class="demo-card-top">
+            <span class="demo-favicon"></span>
+            <div>
+              <span class="demo-title">yourproject.dev</span>
+              <span class="demo-domain">yourproject.dev</span>
+            </div>
+            <span class="demo-tag">tools</span>
+          </div>
+          <p class="demo-desc">A little app you built on a weekend that deserves an audience.</p>
+          <div class="demo-stats">
+            <span class="demo-stat">♥ 128</span>
+            <span class="demo-stat">◎ 4,392</span>
+            <span class="demo-visit">Visit →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wave-divider" aria-hidden="true">
+      <svg viewBox="0 0 1200 90" preserveAspectRatio="none"><path d="M0,40 C220,110 340,-10 620,30 C860,64 1000,-6 1200,36 L1200,90 L0,90 Z"></path></svg>
+    </div>
+  </section>
+
+  <section class="how" id="how">
+    <div class="wrap how-inner">
+      <span class="section-tag">01 — How it works</span>
+      <h2 class="section-title">Three steps. Zero spend.</h2>
+      <div class="step-grid">
+        <article class="step-card">
+          <span class="step-number">01</span>
+          <h3>Make a free account</h3>
+          <p>Email and password, or Google. Takes about as long as reading this sentence.</p>
+        </article>
+        <article class="step-card">
+          <span class="step-number">02</span>
+          <h3>Submit your site</h3>
+          <p>Name, link, category, and a one-line pitch. It's live on the board immediately.</p>
+        </article>
+        <article class="step-card">
+          <span class="step-number">03</span>
+          <h3>Get seen, liked, counted</h3>
+          <p>Every visitor sees your view count climb in real time. Every like is someone who meant it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="browse" id="browse">
+    <div class="wave-divider wave-divider-flip" aria-hidden="true">
+      <svg viewBox="0 0 1200 90" preserveAspectRatio="none"><path d="M0,54 C240,-10 380,84 640,40 C880,0 1020,70 1200,30 L1200,90 L0,90 Z"></path></svg>
+    </div>
+    <div class="wrap">
+      <span class="section-tag">02 — The board</span>
+      <h2 class="section-title">Everything listed here, right now</h2>
+
+      <div class="browse-controls">
+        <div class="search-field">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M11.5 11.5L15 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input type="text" id="searchInput" placeholder="Search the board...">
+        </div>
+        <select id="sortSelect" class="sort-select">
+          <option value="trending">Trending</option>
+          <option value="newest">Newest</option>
+          <option value="viewed">Most viewed</option>
+        </select>
+      </div>
+
+      <div class="chip-row" id="chipRow">
+        <button class="chip active" type="button" data-category="all">All</button>
+        <button class="chip" type="button" data-category="tools">Tools &amp; apps</button>
+        <button class="chip" type="button" data-category="games">Games</button>
+        <button class="chip" type="button" data-category="shops">Shops</button>
+        <button class="chip" type="button" data-category="blogs">Blogs</button>
+        <button class="chip" type="button" data-category="art">Art</button>
+        <button class="chip" type="button" data-category="community">Communities</button>
+        <button class="chip" type="button" data-category="other">Other</button>
+        <button class="chip chip-mine" type="button" data-category="mine" id="mineChip" hidden>My listings</button>
+      </div>
+
+      <div class="site-grid" id="siteGrid"></div>
+      <p class="board-state" id="boardLoading">Loading the board...</p>
+      <div class="board-state board-empty" id="boardEmpty" hidden>
+        <p>Nothing here yet.</p>
+        <button class="btn btn-primary" type="button" id="emptySubmitBtn">Be the first to list something</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="submit-cta" id="submit">
+    <div class="wrap submit-inner">
+      <span class="section-tag">03 — Your turn</span>
+      <h2 class="section-title">Nothing to spend on ads? Good — neither do we.</h2>
+      <p class="submit-sub">List whatever you've built. A side project, a shop, a blog nobody's found yet. It costs nothing and it stays up as long as you want it there.</p>
+      <button class="btn btn-primary btn-large" type="button" id="ctaSubmitBtn">List your site — it's free</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <svg width="24" height="24" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="16" cy="20" r="11" fill="var(--amber)"/>
+        <circle cx="26" cy="20" r="11" fill="var(--clay)" fill-opacity="0.85"/>
+      </svg>
+      <span>united</span>
+    </div>
+    <span class="footer-copy">© 2026 United. Free advertising, for everyone.</span>
+  </div>
+</footer>
+
+<script type="module" src="script.js"></script>
+</body>
+</html>
